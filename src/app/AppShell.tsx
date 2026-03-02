@@ -15,6 +15,12 @@ function fmtDate(iso: string) {
     }
 }
 
+function toNumSafe(v: string): number {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, n);
+}
+
 export function AppShell() {
     const [tab, setTab] = useState<Tab>("Log");
     const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
@@ -33,8 +39,7 @@ export function AppShell() {
 
     async function refresh() {
         const all = await listWorkouts();
-        // newest first
-        all.sort((a, b) => (a.date < b.date ? 1 : -1));
+        all.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
         setWorkouts(all);
     }
 
@@ -61,6 +66,15 @@ export function AppShell() {
         await persist(session);
     }
 
+    function finishWorkout() {
+        setActiveId(null);
+    }
+
+    function renameActiveTitle(nextTitle: string) {
+        if (!active) return;
+        void persist({ ...active, title: nextTitle });
+    }
+
     function addExerciseToActive(ex: Exercise) {
         if (!active) return;
 
@@ -69,13 +83,7 @@ export function AppShell() {
             exerciseId: ex.id,
             name: ex.name,
             group: ex.group,
-            sets: [
-                {
-                    id: newId(),
-                    weight: 0,
-                    reps: 0,
-                },
-            ],
+            sets: [{ id: newId(), weight: 0, reps: 0 }],
         };
 
         void persist({
@@ -84,17 +92,29 @@ export function AppShell() {
         });
     }
 
-    function renameActiveTitle(nextTitle: string) {
-        if (!active) return;
-        void persist({ ...active, title: nextTitle });
-    }
-
     function addSet(exerciseRowId: string) {
         if (!active) return;
 
         const nextExercises = active.exercises.map((ex) => {
             if (ex.id !== exerciseRowId) return ex;
             const nextSet: WorkoutSet = { id: newId(), weight: 0, reps: 0 };
+            return { ...ex, sets: [...ex.sets, nextSet] };
+        });
+
+        void persist({ ...active, exercises: nextExercises });
+    }
+
+    function duplicateLastSet(exerciseRowId: string) {
+        if (!active) return;
+
+        const nextExercises = active.exercises.map((ex) => {
+            if (ex.id !== exerciseRowId) return ex;
+            const last = ex.sets[ex.sets.length - 1];
+            const nextSet: WorkoutSet = {
+                id: newId(),
+                weight: last?.weight ?? 0,
+                reps: last?.reps ?? 0,
+            };
             return { ...ex, sets: [...ex.sets, nextSet] };
         });
 
@@ -115,13 +135,30 @@ export function AppShell() {
         void persist({ ...active, exercises: nextExercises });
     }
 
+    function bumpSet(exerciseRowId: string, setId: string, field: "weight" | "reps", delta: number) {
+        if (!active) return;
+
+        const nextExercises = active.exercises.map((ex) => {
+            if (ex.id !== exerciseRowId) return ex;
+            return {
+                ...ex,
+                sets: ex.sets.map((s) => {
+                    if (s.id !== setId) return s;
+                    const next = Math.max(0, (s[field] ?? 0) + delta);
+                    return { ...s, [field]: next };
+                }),
+            };
+        });
+
+        void persist({ ...active, exercises: nextExercises });
+    }
+
     function removeSet(exerciseRowId: string, setId: string) {
         if (!active) return;
 
         const nextExercises = active.exercises.map((ex) => {
             if (ex.id !== exerciseRowId) return ex;
             const nextSets = ex.sets.filter((s) => s.id !== setId);
-            // keep at least 1 set row
             return { ...ex, sets: nextSets.length ? nextSets : [{ id: newId(), weight: 0, reps: 0 }] };
         });
 
@@ -130,7 +167,6 @@ export function AppShell() {
 
     function removeExercise(exerciseRowId: string) {
         if (!active) return;
-
         const nextExercises = active.exercises.filter((ex) => ex.id !== exerciseRowId);
         void persist({ ...active, exercises: nextExercises });
     }
@@ -209,18 +245,28 @@ export function AppShell() {
                                     Add Exercise
                                 </button>
 
+                                <button
+                                    onClick={finishWorkout}
+                                    disabled={!active}
+                                    style={{
+                                        padding: "10px 12px",
+                                        borderRadius: 10,
+                                        border: `1px solid ${C.border}`,
+                                        background: "transparent",
+                                        color: active ? C.accent : C.textDim,
+                                        cursor: active ? "pointer" : "not-allowed",
+                                        fontWeight: 900,
+                                        opacity: active ? 1 : 0.6,
+                                    }}
+                                >
+                                    Finish Workout
+                                </button>
+
                                 <div style={{ color: C.textDim }}>Sessions stored: {workouts.length}</div>
                             </div>
 
                             {/* active editor */}
-                            <div
-                                style={{
-                                    border: `1px solid ${C.border}`,
-                                    borderRadius: 12,
-                                    padding: 12,
-                                    background: C.surface,
-                                }}
-                            >
+                            <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, background: C.surface }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: 900, fontSize: 14, color: C.textDim, marginBottom: 6 }}>
@@ -281,12 +327,7 @@ export function AppShell() {
                                         {active.exercises.map((ex) => (
                                             <div
                                                 key={ex.id}
-                                                style={{
-                                                    border: `1px solid ${C.border}`,
-                                                    borderRadius: 12,
-                                                    padding: 10,
-                                                    background: C.bg,
-                                                }}
+                                                style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 10, background: C.bg }}
                                             >
                                                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                                     <div>
@@ -294,7 +335,7 @@ export function AppShell() {
                                                         <div style={{ color: C.textDim, fontSize: 12 }}>{ex.group}</div>
                                                     </div>
 
-                                                    <div style={{ display: "flex", gap: 8 }}>
+                                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                                                         <button
                                                             onClick={() => addSet(ex.id)}
                                                             style={{
@@ -308,6 +349,21 @@ export function AppShell() {
                                                             }}
                                                         >
                                                             + Set
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => duplicateLastSet(ex.id)}
+                                                            style={{
+                                                                border: `1px solid ${C.border}`,
+                                                                background: "transparent",
+                                                                color: C.secondary,
+                                                                padding: "8px 10px",
+                                                                borderRadius: 10,
+                                                                cursor: "pointer",
+                                                                fontWeight: 900,
+                                                            }}
+                                                        >
+                                                            Duplicate
                                                         </button>
 
                                                         <button
@@ -328,7 +384,7 @@ export function AppShell() {
                                                 </div>
 
                                                 {/* set rows */}
-                                                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                                                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
                                                     {ex.sets.map((s, idx) => (
                                                         <div
                                                             key={s.id}
@@ -341,49 +397,87 @@ export function AppShell() {
                                                         >
                                                             <div style={{ color: C.textDim, fontSize: 12, fontWeight: 900 }}>Set {idx + 1}</div>
 
-                                                            <input
-                                                                inputMode="decimal"
-                                                                value={String(s.weight)}
-                                                                onChange={(e) =>
-                                                                    updateSet(ex.id, s.id, {
-                                                                        weight: Number(e.target.value || 0),
-                                                                    })
-                                                                }
-                                                                placeholder="Weight"
-                                                                style={{
-                                                                    width: "100%",
-                                                                    boxSizing: "border-box",
-                                                                    background: C.surface,
-                                                                    border: `1px solid ${C.border}`,
-                                                                    borderRadius: 10,
-                                                                    padding: "10px 12px",
-                                                                    color: C.text,
-                                                                    fontSize: 14,
-                                                                    outline: "none",
-                                                                }}
-                                                            />
+                                                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                                                <input
+                                                                    inputMode="decimal"
+                                                                    value={String(s.weight)}
+                                                                    onChange={(e) => updateSet(ex.id, s.id, { weight: toNumSafe(e.target.value) })}
+                                                                    placeholder="Weight"
+                                                                    style={{
+                                                                        width: "100%",
+                                                                        boxSizing: "border-box",
+                                                                        background: C.surface,
+                                                                        border: `1px solid ${C.border}`,
+                                                                        borderRadius: 10,
+                                                                        padding: "10px 12px",
+                                                                        color: C.text,
+                                                                        fontSize: 14,
+                                                                        outline: "none",
+                                                                    }}
+                                                                />
+                                                                <button
+                                                                    onClick={() => bumpSet(ex.id, s.id, "weight", 5)}
+                                                                    style={{
+                                                                        border: `1px solid ${C.border}`,
+                                                                        background: "transparent",
+                                                                        color: C.secondary,
+                                                                        padding: "10px 10px",
+                                                                        borderRadius: 10,
+                                                                        cursor: "pointer",
+                                                                        fontWeight: 900,
+                                                                    }}
+                                                                >
+                                                                    +5
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => bumpSet(ex.id, s.id, "weight", 10)}
+                                                                    style={{
+                                                                        border: `1px solid ${C.border}`,
+                                                                        background: "transparent",
+                                                                        color: C.secondary,
+                                                                        padding: "10px 10px",
+                                                                        borderRadius: 10,
+                                                                        cursor: "pointer",
+                                                                        fontWeight: 900,
+                                                                    }}
+                                                                >
+                                                                    +10
+                                                                </button>
+                                                            </div>
 
-                                                            <input
-                                                                inputMode="numeric"
-                                                                value={String(s.reps)}
-                                                                onChange={(e) =>
-                                                                    updateSet(ex.id, s.id, {
-                                                                        reps: Number(e.target.value || 0),
-                                                                    })
-                                                                }
-                                                                placeholder="Reps"
-                                                                style={{
-                                                                    width: "100%",
-                                                                    boxSizing: "border-box",
-                                                                    background: C.surface,
-                                                                    border: `1px solid ${C.border}`,
-                                                                    borderRadius: 10,
-                                                                    padding: "10px 12px",
-                                                                    color: C.text,
-                                                                    fontSize: 14,
-                                                                    outline: "none",
-                                                                }}
-                                                            />
+                                                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                                                <input
+                                                                    inputMode="numeric"
+                                                                    value={String(s.reps)}
+                                                                    onChange={(e) => updateSet(ex.id, s.id, { reps: toNumSafe(e.target.value) })}
+                                                                    placeholder="Reps"
+                                                                    style={{
+                                                                        width: "100%",
+                                                                        boxSizing: "border-box",
+                                                                        background: C.surface,
+                                                                        border: `1px solid ${C.border}`,
+                                                                        borderRadius: 10,
+                                                                        padding: "10px 12px",
+                                                                        color: C.text,
+                                                                        fontSize: 14,
+                                                                        outline: "none",
+                                                                    }}
+                                                                />
+                                                                <button
+                                                                    onClick={() => bumpSet(ex.id, s.id, "reps", 1)}
+                                                                    style={{
+                                                                        border: `1px solid ${C.border}`,
+                                                                        background: "transparent",
+                                                                        color: C.secondary,
+                                                                        padding: "10px 10px",
+                                                                        borderRadius: 10,
+                                                                        cursor: "pointer",
+                                                                        fontWeight: 900,
+                                                                    }}
+                                                                >
+                                                                    +1
+                                                                </button>
+                                                            </div>
 
                                                             <button
                                                                 onClick={() => removeSet(ex.id, s.id)}
@@ -445,14 +539,7 @@ export function AppShell() {
                     )}
 
                     {tab !== "Log" && (
-                        <div
-                            style={{
-                                padding: 20,
-                                border: `1px dashed ${C.border}`,
-                                borderRadius: 12,
-                                color: C.textDim,
-                            }}
-                        >
+                        <div style={{ padding: 20, border: `1px dashed ${C.border}`, borderRadius: 12, color: C.textDim }}>
                             {tab} coming next…
                         </div>
                     )}
