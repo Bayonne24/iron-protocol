@@ -1,5 +1,3 @@
-// src/types/domain.ts
-
 export type Id = string;
 
 export const MUSCLE_GROUPS = [
@@ -40,7 +38,7 @@ export type WorkoutExercise = {
 
 export type WorkoutSession = {
     id: Id;
-    date: string; // ISO
+    date: string; // ISO string
     title: string;
     exercises: WorkoutExercise[];
 };
