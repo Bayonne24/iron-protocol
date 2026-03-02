@@ -1,4 +1,5 @@
 // src/types/domain.ts
+
 export type Id = string;
 
 export const MUSCLE_GROUPS = [
@@ -18,25 +19,27 @@ export const MUSCLE_GROUPS = [
 export type MuscleGroup = (typeof MUSCLE_GROUPS)[number];
 
 export type Exercise = {
-    id: string;
+    id: Id;
     name: string;
     group: MuscleGroup;
 };
 
 export type WorkoutSet = {
-    weight: number;
+    id: Id;
+    weight: number; // lbs for now
     reps: number;
 };
 
 export type WorkoutExercise = {
-    exerciseId: string;
+    id: Id;
+    exerciseId: Id;
     name: string;
     group: MuscleGroup;
     sets: WorkoutSet[];
 };
 
 export type WorkoutSession = {
-    id: string;
+    id: Id;
     date: string; // ISO
     title: string;
     exercises: WorkoutExercise[];
