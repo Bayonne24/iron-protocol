@@ -1,12 +1,11 @@
-// src/app/ui/Theme.ts
 export const C = {
-    bg: "#151515",
-    surface: "#1e1e1e",
-    surfaceHover: "#262626",
+    bg: "#0b0f14",
+    surface: "#121826",
+    surfaceHover: "#182033",
+    text: "#e6e8ee",
+    textDim: "#a7afc0",
     border: "rgba(255,255,255,0.12)",
-    text: "rgba(255,255,255,0.92)",
-    textDim: "rgba(255,255,255,0.70)",
-    primary: "#ffffff",
-    secondary: "rgba(255,255,255,0.85)",
-    accent: "#7dd3fc",
+    primary: "#e6e8ee",
+    secondary: "#9dd6ff",
+    accent: "#9bffcf",
 };
