@@ -4,12 +4,22 @@ import type { Exercise, WorkoutExercise, WorkoutSession, WorkoutSet } from "../t
 import { listWorkouts, saveWorkout } from "../features/workouts/workoutsRepo";
 import { ExercisePicker } from "../features/exercises/ExercisePicker";
 import { C } from "./ui/Theme";
+import { getExerciseSeries, getPR } from "../features/workouts/workoutStats";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from "recharts";
 
 type Tab = "Log" | "Progress" | "Volume" | "History";
 
 function fmtDate(iso: string) {
     try {
         return new Date(iso).toLocaleString();
+    } catch {
+        return iso;
+    }
+}
+
+function fmtShort(iso: string) {
+    try {
+        return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
     } catch {
         return iso;
     }
@@ -29,8 +39,12 @@ export function AppShell() {
     // current session being edited
     const [activeId, setActiveId] = useState<string | null>(null);
 
-    // exercise picker
+    // picker
     const [pickerOpen, setPickerOpen] = useState(false);
+
+    // progress exercise
+    const [progressPickerOpen, setProgressPickerOpen] = useState(false);
+    const [progressExercise, setProgressExercise] = useState<Exercise | null>(null);
 
     const active = useMemo(
         () => workouts.find((w) => w.id === activeId) ?? null,
@@ -171,6 +185,22 @@ export function AppShell() {
         void persist({ ...active, exercises: nextExercises });
     }
 
+    // ===== Progress computed =====
+    const progressSeries = useMemo(() => {
+        if (!progressExercise) return [];
+        const series = getExerciseSeries(workouts, progressExercise.name);
+        return series.map((r) => ({
+            date: fmtShort(r.date),
+            topWeight: r.topWeight,
+        }));
+    }, [workouts, progressExercise]);
+
+    const progressPR = useMemo(() => {
+        if (!progressExercise) return null;
+        const { pr, prDate } = getPR(workouts, progressExercise.name);
+        return { pr, prDate };
+    }, [workouts, progressExercise]);
+
     return (
         <div
             style={{
@@ -209,9 +239,9 @@ export function AppShell() {
                 <div>Loading…</div>
             ) : (
                 <>
+                    {/* ========= LOG ========= */}
                     {tab === "Log" && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            {/* top actions */}
                             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                                 <button
                                     onClick={startWorkout}
@@ -265,7 +295,6 @@ export function AppShell() {
                                 <div style={{ color: C.textDim }}>Sessions stored: {workouts.length}</div>
                             </div>
 
-                            {/* active editor */}
                             <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, background: C.surface }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                                     <div style={{ flex: 1 }}>
@@ -383,7 +412,6 @@ export function AppShell() {
                                                     </div>
                                                 </div>
 
-                                                {/* set rows */}
                                                 <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
                                                     {ex.sets.map((s, idx) => (
                                                         <div
@@ -402,7 +430,6 @@ export function AppShell() {
                                                                     inputMode="decimal"
                                                                     value={String(s.weight)}
                                                                     onChange={(e) => updateSet(ex.id, s.id, { weight: toNumSafe(e.target.value) })}
-                                                                    placeholder="Weight"
                                                                     style={{
                                                                         width: "100%",
                                                                         boxSizing: "border-box",
@@ -450,7 +477,6 @@ export function AppShell() {
                                                                     inputMode="numeric"
                                                                     value={String(s.reps)}
                                                                     onChange={(e) => updateSet(ex.id, s.id, { reps: toNumSafe(e.target.value) })}
-                                                                    placeholder="Reps"
                                                                     style={{
                                                                         width: "100%",
                                                                         boxSizing: "border-box",
@@ -502,7 +528,6 @@ export function AppShell() {
                                 )}
                             </div>
 
-                            {/* sessions list */}
                             <div>
                                 <div style={{ fontWeight: 900, marginBottom: 8 }}>Recent Sessions</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -521,8 +546,7 @@ export function AppShell() {
                                             }}
                                         >
                                             <div style={{ fontWeight: 900 }}>
-                                                {w.title}{" "}
-                                                <span style={{ color: C.textDim, fontWeight: 700 }}>• {w.exercises.length} ex</span>
+                                                {w.title} <span style={{ color: C.textDim, fontWeight: 700 }}>• {w.exercises.length} ex</span>
                                             </div>
                                             <div style={{ color: C.textDim, fontSize: 12 }}>{fmtDate(w.date)}</div>
                                         </button>
@@ -530,17 +554,80 @@ export function AppShell() {
                                 </div>
                             </div>
 
+                            <ExercisePicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={addExerciseToActive} />
+                        </div>
+                    )}
+
+                    {/* ========= PROGRESS ========= */}
+                    {tab === "Progress" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                            <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, background: C.surface }}>
+                                <div style={{ fontWeight: 900, marginBottom: 10 }}>Exercise Progress</div>
+
+                                <button
+                                    onClick={() => setProgressPickerOpen(true)}
+                                    style={{
+                                        padding: "10px 12px",
+                                        borderRadius: 10,
+                                        border: `1px solid ${C.border}`,
+                                        background: "transparent",
+                                        color: C.secondary,
+                                        cursor: "pointer",
+                                        fontWeight: 900,
+                                        width: "100%",
+                                        textAlign: "left",
+                                    }}
+                                >
+                                    {progressExercise ? progressExercise.name : "Select an exercise…"}
+                                </button>
+
+                                {progressExercise && progressPR && (
+                                    <div style={{ marginTop: 10, color: C.textDim }}>
+                                        PR:{" "}
+                                        <span style={{ color: C.accent, fontWeight: 900 }}>{progressPR.pr} lb</span>{" "}
+                                        {progressPR.prDate ? <span>({fmtShort(progressPR.prDate)})</span> : null}
+                                    </div>
+                                )}
+
+                                {progressExercise && progressSeries.length >= 2 ? (
+                                    <div style={{ marginTop: 12, height: 220 }}>
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={progressSeries}>
+                                                <XAxis dataKey="date" tick={{ fill: C.textDim, fontSize: 10 }} axisLine={{ stroke: C.border }} tickLine={false} />
+                                                <YAxis tick={{ fill: C.textDim, fontSize: 10 }} axisLine={{ stroke: C.border }} tickLine={false} domain={["auto", "auto"]} />
+                                                <Tooltip
+                                                    contentStyle={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text }}
+                                                    labelStyle={{ color: C.textDim }}
+                                                />
+                                                <Line type="monotone" dataKey="topWeight" stroke={C.primary} strokeWidth={2.5} dot={{ r: 3 }} />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : progressExercise ? (
+                                    <div style={{ marginTop: 12, color: C.textDim }}>Log this exercise in 2+ sessions to see a trend.</div>
+                                ) : (
+                                    <div style={{ marginTop: 12, color: C.textDim }}>Pick an exercise to analyze.</div>
+                                )}
+                            </div>
+
                             <ExercisePicker
-                                open={pickerOpen}
-                                onClose={() => setPickerOpen(false)}
-                                onSelect={(ex) => addExerciseToActive(ex)}
+                                open={progressPickerOpen}
+                                onClose={() => setProgressPickerOpen(false)}
+                                onSelect={(ex) => setProgressExercise(ex)}
                             />
                         </div>
                     )}
 
-                    {tab !== "Log" && (
+                    {/* ========= PLACEHOLDERS ========= */}
+                    {tab === "Volume" && (
                         <div style={{ padding: 20, border: `1px dashed ${C.border}`, borderRadius: 12, color: C.textDim }}>
-                            {tab} coming next…
+                            Volume coming next…
+                        </div>
+                    )}
+
+                    {tab === "History" && (
+                        <div style={{ padding: 20, border: `1px dashed ${C.border}`, borderRadius: 12, color: C.textDim }}>
+                            History coming next…
                         </div>
                     )}
                 </>
