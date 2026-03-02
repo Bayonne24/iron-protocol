@@ -1,4 +1,3 @@
-// src/app/AppShell.tsx
 import { useEffect, useMemo, useState } from "react";
 import { newId } from "../lib/id";
 import type { Exercise, WorkoutExercise, WorkoutSession, WorkoutSet } from "../types/domain";
@@ -21,9 +20,10 @@ export function AppShell() {
     const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
     const [loading, setLoading] = useState(true);
 
+    // current session being edited
     const [activeId, setActiveId] = useState<string | null>(null);
 
-    // picker
+    // exercise picker
     const [pickerOpen, setPickerOpen] = useState(false);
 
     const active = useMemo(
@@ -45,6 +45,12 @@ export function AppShell() {
         })();
     }, []);
 
+    async function persist(session: WorkoutSession) {
+        await saveWorkout(session);
+        await refresh();
+        setActiveId(session.id);
+    }
+
     async function startWorkout() {
         const session: WorkoutSession = {
             id: newId(),
@@ -52,21 +58,13 @@ export function AppShell() {
             title: "Workout",
             exercises: [],
         };
-        await saveWorkout(session);
-        await refresh();
-        setActiveId(session.id);
+        await persist(session);
     }
 
-    async function persist(updated: WorkoutSession) {
-        await saveWorkout(updated);
-        await refresh();
-        setActiveId(updated.id);
-    }
-
-    function addExercise(ex: Exercise) {
+    function addExerciseToActive(ex: Exercise) {
         if (!active) return;
 
-        const we: WorkoutExercise = {
+        const workoutExercise: WorkoutExercise = {
             id: newId(),
             exerciseId: ex.id,
             name: ex.name,
@@ -82,34 +80,59 @@ export function AppShell() {
 
         void persist({
             ...active,
-            exercises: [...active.exercises, we],
+            exercises: [...active.exercises, workoutExercise],
         });
     }
 
-    function addSet(exerciseId: string) {
+    function renameActiveTitle(nextTitle: string) {
         if (!active) return;
-
-        const next = active.exercises.map((e) => {
-            if (e.id !== exerciseId) return e;
-            const s: WorkoutSet = { id: newId(), weight: 0, reps: 0 };
-            return { ...e, sets: [...e.sets, s] };
-        });
-
-        void persist({ ...active, exercises: next });
+        void persist({ ...active, title: nextTitle });
     }
 
-    function updateSet(exerciseId: string, setId: string, patch: Partial<WorkoutSet>) {
+    function addSet(exerciseRowId: string) {
         if (!active) return;
 
-        const next = active.exercises.map((e) => {
-            if (e.id !== exerciseId) return e;
+        const nextExercises = active.exercises.map((ex) => {
+            if (ex.id !== exerciseRowId) return ex;
+            const nextSet: WorkoutSet = { id: newId(), weight: 0, reps: 0 };
+            return { ...ex, sets: [...ex.sets, nextSet] };
+        });
+
+        void persist({ ...active, exercises: nextExercises });
+    }
+
+    function updateSet(exerciseRowId: string, setId: string, patch: Partial<WorkoutSet>) {
+        if (!active) return;
+
+        const nextExercises = active.exercises.map((ex) => {
+            if (ex.id !== exerciseRowId) return ex;
             return {
-                ...e,
-                sets: e.sets.map((s) => (s.id === setId ? { ...s, ...patch } : s)),
+                ...ex,
+                sets: ex.sets.map((s) => (s.id === setId ? { ...s, ...patch } : s)),
             };
         });
 
-        void persist({ ...active, exercises: next });
+        void persist({ ...active, exercises: nextExercises });
+    }
+
+    function removeSet(exerciseRowId: string, setId: string) {
+        if (!active) return;
+
+        const nextExercises = active.exercises.map((ex) => {
+            if (ex.id !== exerciseRowId) return ex;
+            const nextSets = ex.sets.filter((s) => s.id !== setId);
+            // keep at least 1 set row
+            return { ...ex, sets: nextSets.length ? nextSets : [{ id: newId(), weight: 0, reps: 0 }] };
+        });
+
+        void persist({ ...active, exercises: nextExercises });
+    }
+
+    function removeExercise(exerciseRowId: string) {
+        if (!active) return;
+
+        const nextExercises = active.exercises.filter((ex) => ex.id !== exerciseRowId);
+        void persist({ ...active, exercises: nextExercises });
     }
 
     return (
@@ -152,8 +175,8 @@ export function AppShell() {
                 <>
                     {tab === "Log" && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            {/* Top actions */}
-                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            {/* top actions */}
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                                 <button
                                     onClick={startWorkout}
                                     style={{
@@ -163,7 +186,7 @@ export function AppShell() {
                                         background: C.surface,
                                         color: C.text,
                                         cursor: "pointer",
-                                        fontWeight: 750,
+                                        fontWeight: 800,
                                     }}
                                 >
                                     Start Workout
@@ -179,19 +202,17 @@ export function AppShell() {
                                         background: "transparent",
                                         color: active ? C.secondary : C.textDim,
                                         cursor: active ? "pointer" : "not-allowed",
-                                        fontWeight: 800,
+                                        fontWeight: 900,
                                         opacity: active ? 1 : 0.6,
                                     }}
                                 >
                                     Add Exercise
                                 </button>
 
-                                <div style={{ alignSelf: "center", color: C.textDim }}>
-                                    Sessions stored: {workouts.length}
-                                </div>
+                                <div style={{ color: C.textDim }}>Sessions stored: {workouts.length}</div>
                             </div>
 
-                            {/* Active session editor */}
+                            {/* active editor */}
                             <div
                                 style={{
                                     border: `1px solid ${C.border}`,
@@ -200,14 +221,36 @@ export function AppShell() {
                                     background: C.surface,
                                 }}
                             >
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                                    <div>
-                                        <div style={{ fontWeight: 900, fontSize: 16 }}>
-                                            {active ? "Editing Session" : "No active session"}
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontWeight: 900, fontSize: 14, color: C.textDim, marginBottom: 6 }}>
+                                            Active Session
                                         </div>
-                                        <div style={{ color: C.textDim, fontSize: 12 }}>
-                                            {active ? fmtDate(active.date) : "Click Start Workout to begin"}
-                                        </div>
+
+                                        {active ? (
+                                            <>
+                                                <input
+                                                    value={active.title}
+                                                    onChange={(e) => renameActiveTitle(e.target.value)}
+                                                    placeholder="Workout title"
+                                                    style={{
+                                                        width: "100%",
+                                                        boxSizing: "border-box",
+                                                        background: C.bg,
+                                                        border: `1px solid ${C.border}`,
+                                                        borderRadius: 10,
+                                                        padding: "10px 12px",
+                                                        color: C.text,
+                                                        fontSize: 14,
+                                                        outline: "none",
+                                                        fontWeight: 700,
+                                                    }}
+                                                />
+                                                <div style={{ marginTop: 6, color: C.textDim, fontSize: 12 }}>{fmtDate(active.date)}</div>
+                                            </>
+                                        ) : (
+                                            <div style={{ color: C.textDim }}>Click “Start Workout” to begin.</div>
+                                        )}
                                     </div>
 
                                     {active && (
@@ -217,10 +260,11 @@ export function AppShell() {
                                                 border: `1px solid ${C.border}`,
                                                 background: "transparent",
                                                 color: C.textDim,
-                                                padding: "8px 10px",
+                                                padding: "10px 12px",
                                                 borderRadius: 10,
                                                 cursor: "pointer",
-                                                fontWeight: 750,
+                                                fontWeight: 800,
+                                                height: 42,
                                             }}
                                         >
                                             Close
@@ -229,9 +273,7 @@ export function AppShell() {
                                 </div>
 
                                 {active && active.exercises.length === 0 && (
-                                    <div style={{ marginTop: 12, color: C.textDim }}>
-                                        Add your first exercise.
-                                    </div>
+                                    <div style={{ marginTop: 12, color: C.textDim }}>Add your first exercise.</div>
                                 )}
 
                                 {active && active.exercises.length > 0 && (
@@ -246,42 +288,58 @@ export function AppShell() {
                                                     background: C.bg,
                                                 }}
                                             >
-                                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                                     <div>
                                                         <div style={{ fontWeight: 900 }}>{ex.name}</div>
                                                         <div style={{ color: C.textDim, fontSize: 12 }}>{ex.group}</div>
                                                     </div>
-                                                    <button
-                                                        onClick={() => addSet(ex.id)}
-                                                        style={{
-                                                            border: `1px solid ${C.border}`,
-                                                            background: "transparent",
-                                                            color: C.secondary,
-                                                            padding: "8px 10px",
-                                                            borderRadius: 10,
-                                                            cursor: "pointer",
-                                                            fontWeight: 850,
-                                                            height: 40,
-                                                        }}
-                                                    >
-                                                        + Set
-                                                    </button>
+
+                                                    <div style={{ display: "flex", gap: 8 }}>
+                                                        <button
+                                                            onClick={() => addSet(ex.id)}
+                                                            style={{
+                                                                border: `1px solid ${C.border}`,
+                                                                background: "transparent",
+                                                                color: C.secondary,
+                                                                padding: "8px 10px",
+                                                                borderRadius: 10,
+                                                                cursor: "pointer",
+                                                                fontWeight: 900,
+                                                            }}
+                                                        >
+                                                            + Set
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => removeExercise(ex.id)}
+                                                            style={{
+                                                                border: `1px solid ${C.border}`,
+                                                                background: "transparent",
+                                                                color: C.textDim,
+                                                                padding: "8px 10px",
+                                                                borderRadius: 10,
+                                                                cursor: "pointer",
+                                                                fontWeight: 900,
+                                                            }}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
                                                 </div>
 
+                                                {/* set rows */}
                                                 <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
                                                     {ex.sets.map((s, idx) => (
                                                         <div
                                                             key={s.id}
                                                             style={{
                                                                 display: "grid",
-                                                                gridTemplateColumns: "52px 1fr 1fr",
+                                                                gridTemplateColumns: "60px 1fr 1fr 90px",
                                                                 gap: 8,
                                                                 alignItems: "center",
                                                             }}
                                                         >
-                                                            <div style={{ color: C.textDim, fontSize: 12, fontWeight: 800 }}>
-                                                                Set {idx + 1}
-                                                            </div>
+                                                            <div style={{ color: C.textDim, fontSize: 12, fontWeight: 900 }}>Set {idx + 1}</div>
 
                                                             <input
                                                                 inputMode="decimal"
@@ -326,6 +384,21 @@ export function AppShell() {
                                                                     outline: "none",
                                                                 }}
                                                             />
+
+                                                            <button
+                                                                onClick={() => removeSet(ex.id, s.id)}
+                                                                style={{
+                                                                    border: `1px solid ${C.border}`,
+                                                                    background: "transparent",
+                                                                    color: C.textDim,
+                                                                    padding: "10px 12px",
+                                                                    borderRadius: 10,
+                                                                    cursor: "pointer",
+                                                                    fontWeight: 900,
+                                                                }}
+                                                            >
+                                                                Delete
+                                                            </button>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -335,8 +408,8 @@ export function AppShell() {
                                 )}
                             </div>
 
-                            {/* Sessions list */}
-                            <div style={{ marginTop: 4 }}>
+                            {/* sessions list */}
+                            <div>
                                 <div style={{ fontWeight: 900, marginBottom: 8 }}>Recent Sessions</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                                     {workouts.map((w) => (
@@ -354,7 +427,8 @@ export function AppShell() {
                                             }}
                                         >
                                             <div style={{ fontWeight: 900 }}>
-                                                {w.title} <span style={{ color: C.textDim, fontWeight: 700 }}>• {w.exercises.length} ex</span>
+                                                {w.title}{" "}
+                                                <span style={{ color: C.textDim, fontWeight: 700 }}>• {w.exercises.length} ex</span>
                                             </div>
                                             <div style={{ color: C.textDim, fontSize: 12 }}>{fmtDate(w.date)}</div>
                                         </button>
@@ -365,7 +439,7 @@ export function AppShell() {
                             <ExercisePicker
                                 open={pickerOpen}
                                 onClose={() => setPickerOpen(false)}
-                                onSelect={(ex) => addExercise(ex)}
+                                onSelect={(ex) => addExerciseToActive(ex)}
                             />
                         </div>
                     )}
