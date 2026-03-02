@@ -1,46 +1,35 @@
+// src/features/exercises/exercises.ts
 import { EXERCISE_DB } from "./exerciseDb";
+import { MUSCLE_GROUPS } from "../../types/domain";
 import type { Exercise, MuscleGroup } from "../../types/domain";
-import { slugify } from "../../lib/id";
 
-export const MUSCLE_GROUPS = Object.keys(EXERCISE_DB) as MuscleGroup[];
+let cached: Exercise[] | null = null;
 
-export const EXERCISES: Exercise[] = MUSCLE_GROUPS.flatMap((group) =>
-    EXERCISE_DB[group].map((name) => ({
-        id: `${group.toLowerCase()}:${slugify(name)}`,
-        name,
-        group,
-    }))
-);
+function buildAll(): Exercise[] {
+    const out: Exercise[] = [];
+    for (const group of MUSCLE_GROUPS) {
+        const names = EXERCISE_DB[group] ?? [];
+        for (const name of names) {
+            out.push({
+                id: `${group}:${name}`.toLowerCase(),
+                name,
+                group,
+            });
+        }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+}
 
-export const EXERCISE_BY_ID: Record<string, Exercise> = Object.fromEntries(
-    EXERCISES.map((e) => [e.id, e])
-);
+export function allExercises(): Exercise[] {
+    if (!cached) cached = buildAll();
+    return cached;
+}
 
-// Simple fast search index (lowercased name + group)
-type SearchRow = {
-    id: string;
-    name: string;
-    group: MuscleGroup;
-    haystack: string;
-};
-
-const SEARCH_ROWS: SearchRow[] = EXERCISES.map((e) => ({
-    id: e.id,
-    name: e.name,
-    group: e.group,
-    haystack: `${e.name} ${e.group}`.toLowerCase(),
-}));
-
-export function searchExercises(query: string, group?: MuscleGroup | null): Exercise[] {
+export function searchExercises(query: string, group: MuscleGroup | null): Exercise[] {
     const q = query.trim().toLowerCase();
-    let rows = SEARCH_ROWS;
-
-    if (group) rows = rows.filter((r) => r.group === group);
-    if (!q) return rows.map((r) => EXERCISE_BY_ID[r.id]);
-
-    // contains match is fine for now; we can upgrade to scoring later
-    return rows
-        .filter((r) => r.haystack.includes(q))
-        .slice(0, 200)
-        .map((r) => EXERCISE_BY_ID[r.id]);
+    return allExercises().filter((ex) => {
+        if (group && ex.group !== group) return false;
+        if (!q) return true;
+        return ex.name.toLowerCase().includes(q);
+    });
 }
