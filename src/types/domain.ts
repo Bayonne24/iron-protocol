@@ -1,66 +1,44 @@
-export type MuscleGroup =
-    | "Chest"
-    | "Shoulders"
-    | "Biceps"
-    | "Triceps"
-    | "Legs"
-    | "Back"
-    | "Glutes"
-    | "Abs"
-    | "Forearms"
-    | "Neck"
-    | "Cardio";
+// src/types/domain.ts
+
+export const MUSCLE_GROUPS = [
+    "Chest",
+    "Shoulders",
+    "Biceps",
+    "Triceps",
+    "Legs",
+    "Back",
+    "Glutes",
+    "Abs",
+    "Forearms",
+    "Neck",
+    "Cardio",
+] as const;
+
+export type MuscleGroup = (typeof MUSCLE_GROUPS)[number];
+
+export type Id = string;
 
 export type Exercise = {
-    id: string;      // stable ID (slug)
+    id: Id;
     name: string;
     group: MuscleGroup;
 };
 
-export type SetEntry = {
+export type WorkoutSet = {
     weight: number;
     reps: number;
-    rpe?: number;    // optional future
 };
 
-export type ExerciseEntry = {
-    exerciseId: string;
-    sets: SetEntry[];
-    notes?: string;
+export type WorkoutExercise = {
+    exerciseId: Id;
+    name: string;
+    group: MuscleGroup;
+    sets: WorkoutSet[];
 };
 
 export type WorkoutSession = {
-    id: string;
+    id: Id;
     date: string; // ISO
-    title?: string; // “Push Day”, etc.
-    exercises: ExerciseEntry[];
-    notes?: string;
-};
-
-export type BodyLog = {
-    id: string;
-    date: string; // ISO
-    weightLb?: number;
-    calories?: number;
-    proteinG?: number;
-    carbsG?: number;
-    fatG?: number;
-};
-
-export type CardioLog = {
-    id: string;
-    date: string; // ISO
-    mode: "Run" | "Walk" | "Bike" | "Row" | "Other";
-    durationMin: number;
-    distanceMi?: number;
-    calories?: number;
-    notes?: string;
-};
-
-export type ProgressPhoto = {
-    id: string;
-    date: string; // ISO
-    // stored in IndexedDB as Blob later
-    blobId: string;
-    note?: string;
+    title: string;
+    exercises: WorkoutExercise[];
 };
